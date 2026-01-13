@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.py[cod].*
+*.so
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Env files
+.env
+.env.*
+
+# Databases
+*.db
+*.sqlite
+
+# Editor
+.vscode/
+.idea/
+
+# Test artifacts
+.pytest_cache/
+
+# Logs
+*.log
+
+# Mac
+.DS_Store
