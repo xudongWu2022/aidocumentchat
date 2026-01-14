@@ -23,7 +23,7 @@ This repository contains a simple Retrieval-Augmented Generation (RAG) agent and
 
 - POST /upload
   - Form fields:
-    - `file` (file): plain text file to upload
+    - `file` (file): plain text, PDF, or Word (.docx/.doc) file to upload
     - `doc_id` (optional string): document id (defaults to filename without extension)
   - Response: `{ "ingested": {"doc_id": <id>, "chunks_added": <n> }}`
 

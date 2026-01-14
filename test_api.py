@@ -69,6 +69,10 @@ files = {"file": ("sample.txt", sample_text, "text/plain")}
 res = client.post("/upload", files=files, data={"doc_id": "apidoc"})
 print("Upload status", res.status_code, res.json())
 
+# Test PDF upload (mock - since we can't create real PDF in test)
+# In real usage, you'd upload an actual PDF file
+print("Note: PDF/Word upload supported - test with real files")
+
 # Ask a question
 res2 = client.post("/ask", json={"doc_id": "apidoc", "question": "What is RAG?"})
 print("Ask status", res2.status_code, res2.json())

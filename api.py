@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+import os
 import agent
 
 app = FastAPI(title="RAG Document QA API")
@@ -27,23 +28,37 @@ async def health():
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...), doc_id: str | None = Form(None)):
-    """Upload a plain text file and ingest it into the vector store."""
-    if file.content_type not in ("text/plain", "text/csv", "application/octet-stream"):
-        raise HTTPException(status_code=400, detail=f"Unsupported content type: {file.content_type}")
+    """Upload a plain text, PDF, or Word file and ingest it into the vector store."""
+    supported_types = {
+        "text/plain": ".txt",
+        "application/pdf": ".pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/msword": ".doc",
+        "application/octet-stream": None  # fallback for files without proper MIME
+    }
 
-    body = await file.read()
+    if file.content_type not in supported_types:
+        raise HTTPException(status_code=400, detail=f"Unsupported content type: {file.content_type}. Supported: {', '.join(supported_types.keys())}")
+
+    # Save uploaded file temporarily
+    temp_path = f"temp_{file.filename}"
     try:
-        text = body.decode("utf-8")
-    except Exception:
-        # fallback: try latin-1
-        text = body.decode("latin-1")
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
 
-    if not doc_id:
-        # fall back to filename without extension
-        doc_id = (file.filename or "uploaded").rsplit(".", 1)[0]
+        if not doc_id:
+            # fall back to filename without extension
+            doc_id = (file.filename or "uploaded").rsplit(".", 1)[0]
 
-    res = agent.ingest_document_text(doc_id, text)
-    return {"ingested": res}
+        res = agent.ingest_document_file(temp_path, doc_id)
+        return {"ingested": res}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 @app.post("/ask")

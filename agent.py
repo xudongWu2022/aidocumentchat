@@ -82,6 +82,38 @@ def _chunk_text(text: str, max_chars: int = 1000, overlap: int = 200) -> List[st
     return chunks
 
 
+def _extract_text_from_file(file_path: str) -> str:
+    """Extract text from various file types."""
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == '.txt':
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    elif ext == '.pdf':
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(file_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+            return text
+        except ImportError:
+            raise ImportError("PyMuPDF is required for PDF files. Install with: pip install PyMuPDF")
+    elif ext in ['.docx', '.doc']:
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            text = ""
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+            return text
+        except ImportError:
+            raise ImportError("python-docx is required for Word files. Install with: pip install python-docx")
+    else:
+        raise ValueError(f"Unsupported file type: {ext}. Supported: .txt, .pdf, .docx, .doc")
+
+
 def ingest_document_text(doc_id: str, text: str):
     """Split the document, compute embeddings and store chunks in DB."""
     create_tables()
@@ -106,8 +138,7 @@ def ingest_document_text(doc_id: str, text: str):
 def ingest_document_file(path: str, doc_id: str = None):
     if not doc_id:
         doc_id = os.path.splitext(os.path.basename(path))[0]
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
+    text = _extract_text_from_file(path)
     return ingest_document_text(doc_id, text)
 
 
