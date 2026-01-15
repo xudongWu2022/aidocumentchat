@@ -64,6 +64,7 @@ async def upload(file: UploadFile = File(...), doc_id: str | None = Form(None)):
         res = agent.ingest_document_file(temp_path, doc_id)
         return {"ingested": res}
     except Exception as e:
+        print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
     finally:
         # Clean up temp file

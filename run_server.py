@@ -9,10 +9,14 @@ Make sure you have set up your .env file with OPENAI_API_KEY and DATABASE_URL.
 import os
 import subprocess
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def check_env():
     """Check if required environment variables are set"""
-    required_vars = ['OPENAI_API_KEY', 'DATABASE_URL']
+    required_vars = ['OPENAI_API_KEY', 'RAG_DATABASE_URL']
     missing = []
 
     for var in required_vars:
@@ -26,7 +30,7 @@ def check_env():
         print("\nPlease set them in a .env file or environment variables.")
         print("Example .env file:")
         print("OPENAI_API_KEY=sk-your-key-here")
-        print("DATABASE_URL=sqlite:///./data.db")
+        print("RAG_DATABASE_URL=sqlite:///./rag_documents.db")
         return False
 
     return True
@@ -58,7 +62,7 @@ def main():
 
     print("\n📋 Server Configuration:")
     print(f"   - API Key: {'*' * 20}...{os.getenv('OPENAI_API_KEY')[-4:] if os.getenv('OPENAI_API_KEY') else 'Not set'}")
-    print(f"   - Database: {os.getenv('DATABASE_URL')}")
+    print(f"   - Database: {os.getenv('RAG_DATABASE_URL')}")
     print("   - Host: 0.0.0.0")
     print("   - Port: 8000")
 

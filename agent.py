@@ -27,7 +27,7 @@ If you call the `search_document` tool, pass a JSON object with the `query`, an 
 """
 
 
-def call_llm(messages, tools=TOOLS, tool_calls="auto"):
+def call_llm(messages, tools=TOOLS, tool_choice="auto"):
     kwargs = {
         "model": OPENAI_MODEL,
         "messages": messages,
@@ -35,7 +35,7 @@ def call_llm(messages, tools=TOOLS, tool_calls="auto"):
 
     if tools:
         kwargs["tools"] = tools
-        kwargs["tool_calls"] = tool_calls
+        kwargs["tool_choice"] = tool_choice
 
     return client.chat.completions.create(**kwargs)
 
@@ -116,23 +116,27 @@ def _extract_text_from_file(file_path: str) -> str:
 
 def ingest_document_text(doc_id: str, text: str):
     """Split the document, compute embeddings and store chunks in DB."""
-    create_tables()
-    chunks = _chunk_text(text)
-    inserted = 0
+    try:
+        create_tables()
+        chunks = _chunk_text(text)
+        inserted = 0
 
-    for i, c in enumerate(chunks):
-        # create embedding
-        resp = client.embeddings.create(model=OPENAI_EMBEDDING_MODEL, input=c)
-        emb = resp.data[0].embedding
-        # store as JSON
-        with engine.begin() as conn:
-            conn.execute(
-                sa_text("INSERT INTO chunks (doc_id, chunk_id, text, embedding) VALUES (:doc_id, :chunk_id, :text, :embedding)"),
-                {"doc_id": doc_id, "chunk_id": f"{doc_id}_chunk_{i}", "text": c, "embedding": json.dumps(emb)},
-            )
-        inserted += 1
+        for i, c in enumerate(chunks):
+            # create embedding
+            resp = client.embeddings.create(model=OPENAI_EMBEDDING_MODEL, input=c)
+            emb = resp.data[0].embedding
+            # store as JSON
+            with engine.begin() as conn:
+                conn.execute(
+                    sa_text("INSERT INTO chunks (doc_id, chunk_id, text, embedding) VALUES (:doc_id, :chunk_id, :text, :embedding)"),
+                    {"doc_id": doc_id, "chunk_id": f"{doc_id}_chunk_{i}", "text": c, "embedding": json.dumps(emb)},
+                )
+            inserted += 1
 
-    return {"doc_id": doc_id, "chunks_added": inserted}
+        return {"doc_id": doc_id, "chunks_added": inserted}
+    except Exception as e:
+        print(f"Error in ingest_document_text: {e}")
+        raise
 
 
 def ingest_document_file(path: str, doc_id: str = None):
@@ -198,53 +202,106 @@ def agent_executor(user_question: str, doc_id: str = "doc1") -> Dict:
         # (1) If model decided to call a tool (function-call style), detect it
         tool_name = None
         tool_args = None
+        tool_calls = None
 
         # attempt multiple detection strategies (dict-like or attribute-like)
         try:
             # dict-like
             m = msg if isinstance(msg, dict) else msg.__dict__
-            fc = m.get("function_call") or m.get("tool_call")
-            if fc:
-                tool_name = fc.get("name")
-                args = fc.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        tool_args = json.loads(args)
-                    except Exception:
-                        tool_args = {}
-                else:
-                    tool_args = args or {}
+            tc = m.get("tool_calls")
+            if tc:
+                # 处理tool_calls数组（新版本OpenAI）
+                if isinstance(tc, list) and len(tc) > 0:
+                    tool_call = tc[0]
+                    tool_name = tool_call.get("function", {}).get("name")
+                    args = tool_call.get("function", {}).get("arguments")
+                    tool_calls = tc  # 保存完整的tool_calls
+                    if isinstance(args, str):
+                        try:
+                            tool_args = json.loads(args)
+                        except Exception:
+                            tool_args = {}
+                    else:
+                        tool_args = args or {}
         except Exception:
             pass
 
-        # fallback: some SDKs put function call on message.function_call attr
+        # fallback: some SDKs put function call on message.tool_calls attr
         if not tool_name:
-            fc_attr = getattr(msg, "function_call", None) or getattr(msg, "tool_call", None)
-            if fc_attr:
-                tool_name = getattr(fc_attr, "name", None)
-                args = getattr(fc_attr, "arguments", None)
-                if isinstance(args, str):
-                    try:
-                        tool_args = json.loads(args)
-                    except Exception:
-                        tool_args = {}
-                else:
-                    tool_args = args or {}
+            tc_attr = getattr(msg, "tool_calls", None)
+            if tc_attr:
+                if isinstance(tc_attr, list) and len(tc_attr) > 0:
+                    tool_call = tc_attr[0]
+                    tool_name = getattr(tool_call.function, "name", None) if hasattr(tool_call, "function") else None
+                    args = getattr(tool_call.function, "arguments", None) if hasattr(tool_call, "function") else None
+                    tool_calls = tc_attr  # 保存完整的tool_calls
+                    if isinstance(args, str):
+                        try:
+                            tool_args = json.loads(args)
+                        except Exception:
+                            tool_args = {}
+                    else:
+                        tool_args = args or {}
 
         # (2) If a tool call was requested, run it and append tool result to messages
         if tool_name:
             print(f"[agent] Model requested tool: {tool_name} with args {tool_args}")
+
+            # First, add the assistant message with tool_calls to the conversation
+            assistant_content = None
+            if isinstance(msg, dict):
+                assistant_content = msg.get("content")
+            else:
+                assistant_content = getattr(msg, "content", None)
+
+            assistant_msg = {
+                "role": "assistant",
+                "content": assistant_content,
+                "tool_calls": tool_calls
+            }
+            messages.append(assistant_msg)
+
             if tool_name == "search_document":
                 q = tool_args.get("query") if tool_args else user_question
                 top_k = int(tool_args.get("top_k", 3)) if tool_args else 3
                 d_id = tool_args.get("doc_id", doc_id) if tool_args else doc_id
                 result = search_document(q, d_id, top_k)
                 # attach the tool output as a tool message for the model
-                messages.append({"role": "tool", "name": tool_name, "content": json.dumps(result)})
+                # Get tool_call_id from the first tool call
+                tool_call_id = "call_1"
+                if tool_calls and len(tool_calls) > 0:
+                    if isinstance(tool_calls[0], dict):
+                        tool_call_id = tool_calls[0].get("id", "call_1")
+                    else:
+                        # ChatCompletionMessageToolCall object
+                        tool_call_id = getattr(tool_calls[0], "id", "call_1")
+
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": json.dumps(result)
+                }
+                messages.append(tool_msg)
                 continue  # ask the model again with the tool output in context
             else:
                 # unknown tool - send a message back
-                messages.append({"role": "tool", "name": tool_name, "content": json.dumps({"error": "unknown tool"})})
+                # Get tool_call_id from the first tool call
+                tool_call_id = "call_1"
+                if tool_calls and len(tool_calls) > 0:
+                    if isinstance(tool_calls[0], dict):
+                        tool_call_id = tool_calls[0].get("id", "call_1")
+                    else:
+                        # ChatCompletionMessageToolCall object
+                        tool_call_id = getattr(tool_calls[0], "id", "call_1")
+
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": json.dumps({"error": "unknown tool"})
+                }
+                messages.append(tool_msg)
                 continue
 
         # (3) No tool requested -> treat as final assistant response
@@ -255,13 +312,20 @@ def agent_executor(user_question: str, doc_id: str = "doc1") -> Dict:
             assistant_content = getattr(msg, "content", None)
 
         if assistant_content:
-            # return the assistant message and the full context for debugging
+            # Add the final assistant message to the conversation
+            final_msg = {
+                "role": "assistant",
+                "content": assistant_content
+            }
+            messages.append(final_msg)
+
+            # return the assistant message
             print("[agent] Final answer from model:")
             print(assistant_content)
-            return {"answer": assistant_content, "messages": messages}
+            return {"answer": assistant_content}
 
     # if we exit loop without a final content
-    return {"error": "No final answer after max rounds", "messages": messages}
+    return {"error": "No final answer after max rounds"}
 
 
 # --- simple CLI for manual testing ---------------------------------------

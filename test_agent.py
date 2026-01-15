@@ -47,11 +47,16 @@ class MockClient:
                 # If no tool response yet, ask to call search_document
                 has_tool_output = any(m.get("role") == "tool" for m in messages)
                 if not has_tool_output:
-                    function_call = {
-                        "name": "search_document",
-                        "arguments": json.dumps({"query": messages[-1]["content"], "doc_id": "sample", "top_k": 2})
-                    }
-                    return MockResp({"function_call": function_call})
+                    # Use new tool_calls format
+                    tool_calls = [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_document",
+                            "arguments": json.dumps({"query": messages[-1]["content"], "doc_id": "sample", "top_k": 2})
+                        }
+                    }]
+                    return MockResp({"tool_calls": tool_calls})
                 else:
                     # extract tool output and summarize
                     tool_msg = next((m for m in messages if m.get("role") == "tool"), None)
