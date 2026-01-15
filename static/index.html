@@ -18,10 +18,32 @@
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
         h1 {
             color: #333;
-            text-align: center;
-            margin-bottom: 30px;
+            margin: 0;
+        }
+        .language-switcher {
+            display: flex;
+            gap: 10px;
+        }
+        .lang-btn {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .lang-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
         }
         .upload-section, .chat-section {
             margin-bottom: 30px;
@@ -135,42 +157,159 @@
 </head>
 <body>
     <div class="container">
-        <h1>RAG 文档聊天助手</h1>
+        <div class="header">
+            <h1 id="appTitle">RAG 文档聊天助手</h1>
+            <div class="language-switcher">
+                <button class="lang-btn active" onclick="switchLanguage('zh')">中文</button>
+                <button class="lang-btn" onclick="switchLanguage('en')">English</button>
+            </div>
+        </div>
 
         <div class="upload-section">
-            <h2>📁 上传文档</h2>
+            <h2 id="uploadTitle">📁 上传文档</h2>
             <div class="form-group">
-                <label for="fileInput">选择文件 (支持: .txt, .pdf, .docx, .doc)</label>
+                <label for="fileInput" id="fileLabel">选择文件 (支持: .txt, .pdf, .docx, .doc)</label>
                 <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.doc">
             </div>
             <div class="form-group">
-                <label for="docIdInput">文档ID (可选，默认为文件名)</label>
+                <label for="docIdInput" id="docIdLabel">文档ID (可选，默认为文件名)</label>
                 <input type="text" id="docIdInput" placeholder="例如: my_document">
             </div>
-            <button onclick="uploadFile()">上传文档</button>
+            <button onclick="uploadFile()" id="uploadBtn">上传文档</button>
             <div id="uploadStatus"></div>
         </div>
 
         <div class="chat-section">
-            <h2>💬 提问</h2>
+            <h2 id="chatTitle">💬 提问</h2>
             <div class="form-group">
-                <label for="docIdSelect">选择文档ID</label>
+                <label for="docIdSelect" id="selectDocLabel">选择文档ID</label>
                 <input type="text" id="docIdSelect" placeholder="输入已上传的文档ID">
             </div>
             <div class="form-group">
-                <label for="questionInput">输入问题</label>
+                <label for="questionInput" id="questionLabel">输入问题</label>
                 <input type="text" id="questionInput" placeholder="问我关于文档的问题...">
             </div>
-            <button onclick="askQuestion()">提问</button>
+            <button onclick="askQuestion()" id="askBtn">提问</button>
             <div id="askStatus"></div>
 
             <div class="chat-history" id="chatHistory">
-                <div class="message info">请先上传文档，然后输入问题开始对话。</div>
+                <div class="message info" id="welcomeMsg">请先上传文档，然后输入问题开始对话。</div>
             </div>
         </div>
     </div>
 
     <script>
+        // 国际化语言包
+        const translations = {
+            zh: {
+                appTitle: "RAG 文档聊天助手",
+                uploadTitle: "📁 上传文档",
+                fileLabel: "选择文件 (支持: .txt, .pdf, .docx, .doc)",
+                docIdLabel: "文档ID (可选，默认为文件名)",
+                uploadBtn: "上传文档",
+                chatTitle: "💬 提问",
+                selectDocLabel: "选择文档ID",
+                questionLabel: "输入问题",
+                askBtn: "提问",
+                welcomeMsg: "请先上传文档，然后输入问题开始对话。",
+                selectFile: "请选择一个文件",
+                uploading: "正在上传...",
+                uploadSuccess: "文档上传成功！文档ID: {doc_id}, 分块数: {chunks}",
+                uploadError: "上传失败: {error}",
+                networkError: "网络错误: {error}",
+                unknownError: "未知错误",
+                enterDocId: "请输入文档ID",
+                enterQuestion: "请输入问题",
+                thinking: "正在思考...",
+                answerComplete: "回答完成",
+                askError: "提问失败: {error}",
+                processingError: "抱歉，处理您的问题时出现错误。",
+                connectionError: "网络连接错误，请检查API服务器是否运行。",
+                dragDropHint: "拖拽文件到此处上传"
+            },
+            en: {
+                appTitle: "RAG Document Chat Assistant",
+                uploadTitle: "📁 Upload Document",
+                fileLabel: "Select File (Supported: .txt, .pdf, .docx, .doc)",
+                docIdLabel: "Document ID (Optional, defaults to filename)",
+                uploadBtn: "Upload Document",
+                chatTitle: "💬 Ask Questions",
+                selectDocLabel: "Select Document ID",
+                questionLabel: "Enter Question",
+                askBtn: "Ask",
+                welcomeMsg: "Please upload a document first, then enter your question to start the conversation.",
+                selectFile: "Please select a file",
+                uploading: "Uploading...",
+                uploadSuccess: "Document uploaded successfully! Document ID: {doc_id}, Chunks: {chunks}",
+                uploadError: "Upload failed: {error}",
+                networkError: "Network error: {error}",
+                unknownError: "Unknown error",
+                enterDocId: "Please enter Document ID",
+                enterQuestion: "Please enter a question",
+                thinking: "Thinking...",
+                answerComplete: "Answer completed",
+                askError: "Question failed: {error}",
+                processingError: "Sorry, an error occurred while processing your question.",
+                connectionError: "Network connection error, please check if the API server is running.",
+                dragDropHint: "Drag and drop files here to upload"
+            }
+        };
+
+        // 当前语言
+        let currentLanguage = 'zh';
+
+        // 国际化函数
+        function t(key, params = {}) {
+            let text = translations[currentLanguage][key] || key;
+            // 替换参数
+            Object.keys(params).forEach(param => {
+                text = text.replace(new RegExp(`{${param}}`, 'g'), params[param]);
+            });
+            return text;
+        }
+
+        // 切换语言
+        function switchLanguage(lang) {
+            currentLanguage = lang;
+
+            // 更新语言按钮状态
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // 找到被点击的按钮
+            const clickedBtn = event.target.closest('.lang-btn');
+            if (clickedBtn) {
+                clickedBtn.classList.add('active');
+            }
+
+            // 更新页面文本
+            updatePageText();
+
+            // 更新占位符
+            updatePlaceholders();
+        }
+
+        // 更新页面文本
+        function updatePageText() {
+            document.getElementById('appTitle').textContent = t('appTitle');
+            document.getElementById('uploadTitle').textContent = t('uploadTitle');
+            document.getElementById('fileLabel').textContent = t('fileLabel');
+            document.getElementById('docIdLabel').textContent = t('docIdLabel');
+            document.getElementById('uploadBtn').textContent = t('uploadBtn');
+            document.getElementById('chatTitle').textContent = t('chatTitle');
+            document.getElementById('selectDocLabel').textContent = t('selectDocLabel');
+            document.getElementById('questionLabel').textContent = t('questionLabel');
+            document.getElementById('askBtn').textContent = t('askBtn');
+            document.getElementById('welcomeMsg').textContent = t('welcomeMsg');
+        }
+
+        // 更新占位符
+        function updatePlaceholders() {
+            document.getElementById('docIdInput').placeholder = currentLanguage === 'zh' ? '例如: my_document' : 'e.g.: my_document';
+            document.getElementById('docIdSelect').placeholder = t('selectDocLabel');
+            document.getElementById('questionInput').placeholder = currentLanguage === 'zh' ? '问我关于文档的问题...' : 'Ask me about the document...';
+        }
+
         const API_BASE = 'http://localhost:8000';
 
         async function uploadFile() {
@@ -179,7 +318,7 @@
             const statusDiv = document.getElementById('uploadStatus');
 
             if (!fileInput.files[0]) {
-                showMessage(statusDiv, '请选择一个文件', 'error');
+                showMessage(statusDiv, t('selectFile'), 'error');
                 return;
             }
 
@@ -189,7 +328,7 @@
                 formData.append('doc_id', docIdInput.value.trim());
             }
 
-            showMessage(statusDiv, '<div class="loading"></div> 正在上传...', 'info');
+            showMessage(statusDiv, `<div class="loading"></div> ${t('uploading')}`, 'info');
 
             try {
                 const response = await fetch(`${API_BASE}/upload`, {
@@ -200,14 +339,14 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    showMessage(statusDiv, `✅ 文档上传成功！文档ID: ${result.ingested.doc_id}, 分块数: ${result.ingested.chunks_added}`, 'success');
+                    showMessage(statusDiv, `✅ ${t('uploadSuccess', {doc_id: result.ingested.doc_id, chunks: result.ingested.chunks_added})}`, 'success');
                     // 自动填充文档ID到提问框
                     document.getElementById('docIdSelect').value = result.ingested.doc_id;
                 } else {
-                    showMessage(statusDiv, `❌ 上传失败: ${result.detail || '未知错误'}`, 'error');
+                    showMessage(statusDiv, `❌ ${t('uploadError', {error: result.detail || t('unknownError')})}`, 'error');
                 }
             } catch (error) {
-                showMessage(statusDiv, `❌ 网络错误: ${error.message}`, 'error');
+                showMessage(statusDiv, `❌ ${t('networkError', {error: error.message})}`, 'error');
             }
         }
 
@@ -221,12 +360,12 @@
             const question = questionInput.value.trim();
 
             if (!docId) {
-                showMessage(statusDiv, '请输入文档ID', 'error');
+                showMessage(statusDiv, t('enterDocId'), 'error');
                 return;
             }
 
             if (!question) {
-                showMessage(statusDiv, '请输入问题', 'error');
+                showMessage(statusDiv, t('enterQuestion'), 'error');
                 return;
             }
 
@@ -234,7 +373,7 @@
             addMessageToChat('user', question);
             questionInput.value = '';
 
-            showMessage(statusDiv, '<div class="loading"></div> 正在思考...', 'info');
+            showMessage(statusDiv, `<div class="loading"></div> ${t('thinking')}`, 'info');
 
             try {
                 const response = await fetch(`${API_BASE}/ask`, {
@@ -251,15 +390,15 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    showMessage(statusDiv, '✅ 回答完成', 'success');
+                    showMessage(statusDiv, `✅ ${t('answerComplete')}`, 'success');
                     addMessageToChat('bot', result.answer);
                 } else {
-                    showMessage(statusDiv, `❌ 提问失败: ${result.detail || '未知错误'}`, 'error');
-                    addMessageToChat('bot', '抱歉，处理您的问题时出现错误。');
+                    showMessage(statusDiv, `❌ ${t('askError', {error: result.detail || t('unknownError')})}`, 'error');
+                    addMessageToChat('bot', t('processingError'));
                 }
             } catch (error) {
-                showMessage(statusDiv, `❌ 网络错误: ${error.message}`, 'error');
-                addMessageToChat('bot', '网络连接错误，请检查API服务器是否运行。');
+                showMessage(statusDiv, `❌ ${t('networkError', {error: error.message})}`, 'error');
+                addMessageToChat('bot', t('connectionError'));
             }
         }
 
@@ -326,6 +465,12 @@
                 // uploadFile();
             }
         }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            updatePageText();
+            updatePlaceholders();
+        });
     </script>
 </body>
 </html>
