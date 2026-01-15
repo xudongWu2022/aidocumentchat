@@ -17,6 +17,10 @@
 
 3. 运行应用：
    ```bash
+   # 方式1：使用演示脚本（推荐）
+   python run_server.py
+
+   # 方式2：直接使用uvicorn
    uvicorn api:app --reload --host 0.0.0.0 --port 8000
    ```
 
